@@ -5,7 +5,7 @@ import scipy
 import scipy.signal
 from scipy.signal import lfilter
 import scipy.linalg
-import py_lpc
+import lpc
 import scipy.io.wavfile
 import pylab
 
@@ -26,15 +26,12 @@ lpc_init_cond = np.zeros(LPC_ORDER)
 
 # TODO:
 #
-# * Build LPC
 # * Preprocesing filter (high pass, and equalization)
-# * Build A(z), the prediction filter, from LPC.
 # * Build W(z), the noise weighting filter, from A(z).
 # * Convert LPC (linear prediction coefs) to LSP (linear spectral pairs)
 # * Quantize LSP
 # * Convert LSP to LPC
 # * Build window for frame
-# * Search in codebook
 # * Adaptive Codebook (AC)
 
 # CELP Simplest Algorithm (without preprocesing, AC, W(z), and quantization):
@@ -100,22 +97,13 @@ out_fc_index = []
 # Encoding
 
 for frame in frames:
-    #import ipdb;ipdb.set_trace()
-    #print "Frame codification"
-    lpc_error_coeffs = py_lpc.lpc_ref(frame, LPC_ORDER)
+    lpc_error_coeffs = lpc.lpc_ref(frame, LPC_ORDER)
     out_lpc_coefs.append(lpc_error_coeffs)
     # Buid the H matrix
     h = lfilter([1], lpc_error_coeffs, DELTA)
     H = scipy.linalg.toeplitz(h, np.concatenate(([h[0]], ZERO_INPUT[:SUBFRAME_LENGTH-1])))
-    #import ipdb;ipdb.set_trace()
-
-    #print "LPC coeffs %s"  % lpc_error_coeffs
 
     for subframe in frame.reshape((N_SUBFRAMES, SUBFRAME_LENGTH)):
-        #print "\tSubframe codification"
-        #lpc_zero_input_response, _ =  scipy.signal.lfilter([1], lpc_error_coeffs,
-        #                                               ZERO_INPUT, zi=lpc_init_cond)
-        #print lpc_error_coeffs
         z0 = lfilter([1], lpc_error_coeffs,
                      np.concatenate((last_excitation_code, np.zeros(SUBFRAME_LENGTH))))[SUBFRAME_LENGTH:]
         M = H
@@ -123,11 +111,9 @@ for frame in frames:
         index, amplif = search_codebook(M, d, fixed_codebook)
 
         last_excitation_code = amplif * fixed_codebook[index]
-        #import ipdb;ipdb.set_trace()
         #pylab.plot(subframe)
         #pylab.plot(np.dot(H, last_excitation_code)+z0)
 
-        print "\tindex: %d, amplif: %f" % (index, amplif)
         out_amplifs.append(amplif)
         out_fc_index.append(index)
 
