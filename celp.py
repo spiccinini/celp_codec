@@ -5,24 +5,22 @@ import scipy
 import scipy.signal
 from scipy.signal import lfilter
 import scipy.linalg
-import lpc
-import scipy.io.wavfile
-import pylab
+from itertools import islice
+
 
 SAMPLE_RATE = 8000
-FRAME_LENGTH = 160 # 0.02s @8000Hz
-N_SUBFRAMES = 4
-SUBFRAME_LENGTH =  FRAME_LENGTH / N_SUBFRAMES
+#FRAME_LENGTH = 160 # 0.02s @8000Hz
+#N_SUBFRAMES = 4
+#SUBFRAME_LENGTH =  FRAME_LENGTH / N_SUBFRAMES
 
-LPC_ORDER = 10
+#LPC_ORDER = 10
 
-FC_SIZE = 128
+#FC_SIZE = 128
 
-ZERO_INPUT = np.zeros(FRAME_LENGTH)
+#ZERO_INPUT = np.zeros(FRAME_LENGTH)
 
-DELTA = np.concatenate(([1.], np.zeros(SUBFRAME_LENGTH-1)))
+#DELTA = np.concatenate(([1.], np.zeros(SUBFRAME_LENGTH-1)))
 
-lpc_init_cond = np.zeros(LPC_ORDER)
 
 # TODO:
 #
@@ -42,13 +40,99 @@ lpc_init_cond = np.zeros(LPC_ORDER)
 # * For each subframe:
 #   * Search in FC
 
+class CELP(object):
 
-def gen_gaussian_fixed_codebook(size):
-    return np.random.normal(0, 1, size)
+    lpc_error_coefs_dtype = np.dtype(np.float32)
+    amplifs_dtype = np.dtype(np.float32)
+    index_dtype = np.dtype(np.int16)
 
-#fixed_codebook = gen_gaussian_fixed_codebook((FC_SIZE, SUBFRAME_LENGTH))
-from fixed_codebook_128x40 import FC
-fixed_codebook = FC
+    def __init__(self, frame_length=160, n_subframes=4, lpc_order=10,
+                 fixed_codebook_size=128):
+
+        self.frame_length = frame_length
+        self.n_subframes = n_subframes
+        self.lpc_order = lpc_order
+        self.fc_size = fixed_codebook_size
+
+        self.subframe_length = self.frame_length / self.n_subframes
+        self.zero_input = np.zeros(self.frame_length)
+        self.delta = np.concatenate(([1.], np.zeros(self.subframe_length - 1)))
+
+        # TODO
+        from fixed_codebook_128x40 import FC
+        self.fixed_codebook = FC
+
+        self._excitation = np.zeros(self.subframe_length)
+
+    def encode(self, frame):
+        import lpc
+        lpc_error_coeffs = lpc.lpc_ref(frame, self.lpc_order)
+
+        out_fc_indexes = []
+        out_fc_amplifs = []
+
+
+        # Buid the H matrix
+        h = lfilter([1], lpc_error_coeffs, self.delta)
+        H = scipy.linalg.toeplitz(h, np.concatenate(([h[0]], self.zero_input[:self.subframe_length-1])))
+
+        for subframe in frame.reshape((self.n_subframes, self.subframe_length)):
+            z0 = lfilter([1], lpc_error_coeffs,
+                         np.concatenate((self._excitation, np.zeros(self.subframe_length))))[self.subframe_length:]
+            M = H
+            d = subframe - z0
+            fc_index, fc_amplif = search_codebook(M, d, self.fixed_codebook)
+
+            self._excitation = fc_amplif * self.fixed_codebook[fc_index]
+
+            out_fc_indexes.append(fc_index)
+            out_fc_amplifs.append(fc_amplif)
+
+        lpc = lpc_error_coeffs.astype(self.lpc_error_coefs_dtype).tostring()
+        fc_indexes = np.array(out_fc_indexes, dtype=self.index_dtype).tostring()
+        fc_amplifs = np.array(out_fc_amplifs, dtype=self.amplifs_dtype).tostring()
+
+        return lpc + fc_indexes + fc_amplifs
+
+    def bytes_per_frame(self):
+        size = self.size_of_lpc() + self.size_of_fc_indexes() + self.size_of_amplifs()
+        return size
+
+    def size_of_lpc(self):
+        return self.lpc_error_coefs_dtype.itemsize * (self.lpc_order + 1)
+
+    def size_of_fc_indexes(self):
+        return self.index_dtype.itemsize * self.n_subframes
+
+    def size_of_amplifs(self):
+        return self.amplifs_dtype.itemsize * self.n_subframes
+
+    def decode(self, bits):
+        it = iter(bits)
+
+        lpc_error_coeffs = np.fromstring("".join(islice(it, self.size_of_lpc())),
+                                         dtype=self.lpc_error_coefs_dtype)
+        fc_indexes = np.fromstring("".join(islice(it, self.size_of_fc_indexes())),
+                                   dtype=self.index_dtype)
+        fc_amplifs = np.fromstring("".join(islice(it, self.size_of_amplifs())),
+                                   dtype=self.amplifs_dtype)
+        out = np.array([])
+
+        h = lfilter([1], lpc_error_coeffs, self.delta)
+        H = scipy.linalg.toeplitz(h, np.concatenate(([h[0]], self.zero_input[:self.subframe_length-1])))
+
+        for fc_index, fc_amplif in zip(fc_indexes, fc_amplifs):
+            z0 = lfilter([1], lpc_error_coeffs,
+                         np.concatenate((self._excitation, np.zeros(self.subframe_length))))[self.subframe_length:]
+
+            self._excitation = fc_amplif * self.fixed_codebook[fc_index]
+
+            subframe_out = np.dot(H, self._excitation) + z0
+
+            out = np.concatenate((out, subframe_out))
+
+        return out
+
 
 def search_codebook(M, d, codebook):
     max_index = 0
@@ -77,6 +161,7 @@ def search_codebook(M, d, codebook):
 
     return max_index, best_amplification
 
+"""
 SR, signal = scipy.io.wavfile.read('./data/mike_8.wav')
 signal = signal.astype("float64")
 signal /= np.max(signal)
@@ -147,4 +232,4 @@ for lpc_error_coeffs in out_lpc_coefs:
 out_signal = out_signal * np.iinfo(np.int16).max
 scipy.io.wavfile.write('./data/mike_8_out.wav', 8000, out_signal.astype("int16"))
 
-
+"""
