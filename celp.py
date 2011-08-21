@@ -36,7 +36,8 @@ class CELP(object):
     index_dtype = np.dtype(np.int16)
 
     def __init__(self, frame_length=160, n_subframes=4, lpc_order=10,
-                 fixed_codebook_size=128):
+                 fixed_codebook_size=128, frame_window="boxcar",
+                 weigthing_coeff_1=0.9, weigthing_coeff_2=0.6):
 
         self.frame_length = frame_length
         self.n_subframes = n_subframes
@@ -47,6 +48,10 @@ class CELP(object):
         self.zero_input = np.zeros(self.frame_length)
         self.delta = np.concatenate(([1.], np.zeros(self.subframe_length - 1)))
 
+        self.frame_window = scipy.signal.get_window(frame_window, frame_length)
+
+        self.weigthing_coeff_1, self.weigthing_coeff_2 = weigthing_coeff_1, weigthing_coeff_2
+
         # TODO
         from fixed_codebook_128x40 import FC
         self.fixed_codebook = FC
@@ -55,21 +60,34 @@ class CELP(object):
 
     def encode(self, frame):
         import lpc
+        frame *= self.frame_window
         lpc_error_coeffs = lpc.lpc_ref(frame, self.lpc_order)
 
         out_fc_indexes = []
         out_fc_amplifs = []
 
+        # Buld the noise weigthing filter W matrix
+        # W(z) = A(z/weigthing_coeff_1) / A(z/weigthing_coeff_2)
+        weigthing_b = lpc_error_coeffs * np.power(self.weigthing_coeff_1, np.arange(self.lpc_order+1))
+        weigthing_a = lpc_error_coeffs * np.power(self.weigthing_coeff_2, np.arange(self.lpc_order+1))
+        w = lfilter(weigthing_b, weigthing_a, self.delta)
+        W = scipy.linalg.toeplitz(w, np.concatenate(([w[0]], self.zero_input[:self.subframe_length-1])))
 
-        # Buid the H matrix
+        # Buid the H matrix = 1 / A
         h = lfilter([1], lpc_error_coeffs, self.delta)
         H = scipy.linalg.toeplitz(h, np.concatenate(([h[0]], self.zero_input[:self.subframe_length-1])))
 
         for subframe in frame.reshape((self.n_subframes, self.subframe_length)):
-            z0 = lfilter([1], lpc_error_coeffs,
-                         np.concatenate((self._excitation, np.zeros(self.subframe_length))))[self.subframe_length:]
-            M = H
-            d = subframe - z0
+            lpc_filtered = lfilter([1], lpc_error_coeffs,
+                                   np.concatenate((self._excitation, np.zeros(self.subframe_length))))
+
+            z0 = lpc_filtered[self.subframe_length:] # Zero input response for the H filter
+            z1 = lfilter(weigthing_b, weigthing_a,   # Zero input response for the W filter
+                         np.concatenate((lpc_filtered[:self.subframe_length],
+                                        np.zeros(self.subframe_length))))[self.subframe_length:]
+
+            M = np.dot(W, H)
+            d = np.dot(W, subframe - z0) + z1
             fc_index, fc_amplif = search_codebook(M, d, self.fixed_codebook)
 
             self._excitation = fc_amplif * self.fixed_codebook[fc_index]
@@ -82,6 +100,7 @@ class CELP(object):
         fc_amplifs = np.array(out_fc_amplifs, dtype=self.amplifs_dtype).tostring()
 
         return lpc + fc_indexes + fc_amplifs
+
 
     def bytes_per_frame(self):
         size = self.size_of_lpc() + self.size_of_fc_indexes() + self.size_of_amplifs()

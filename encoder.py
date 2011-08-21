@@ -24,7 +24,14 @@ parser.add_argument('--subframes', type=int, default=4,
                     help='numbre of subframes')
 parser.add_argument('--fixed-cb-size', type=int, default=4,
                     help='fixed codebook size')
-
+parser.add_argument('--frame-window', type=str, default="boxcar",
+                    help='Frame windows (boxcar, hamming, hanning, etc)')
+parser.add_argument('--weigthing-coeff-1', type=float, default=0.9,
+                    help='First coefficient of the weigthing filter'
+                    ' W(z) = A(z/coeff_1) / A(z/coeff_2)')
+parser.add_argument('--weigthing-coeff-2', type=float, default=0.6,
+                    help='Second coefficient of the weigthing filter'
+                    ' W(z) = A(z/coeff_1) / A(z/coeff_2)')
 args = parser.parse_args()
 
 
@@ -38,7 +45,10 @@ out_file = args.o
 celp_encoder = celp.CELP(frame_length=args.frame_length,
                          n_subframes=args.subframes,
                          lpc_order=args.lpc_order,
-                         fixed_codebook_size=args.fixed_cb_size)
+                         fixed_codebook_size=args.fixed_cb_size,
+                         frame_window=args.frame_window,
+                         weigthing_coeff_1=args.weigthing_coeff_1,
+                         weigthing_coeff_2=args.weigthing_coeff_2)
 
 bytes_per_frame = celp_encoder.bytes_per_frame()
 
