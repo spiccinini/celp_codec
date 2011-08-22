@@ -6,6 +6,8 @@ import argparse
 import numpy as np
 import scipy
 
+np.seterr(all='raise')
+
 from ctsndfile.libsndfile import SndFile, OPEN_MODES, FILE_FORMATS
 
 import celp
@@ -22,15 +24,17 @@ parser.add_argument('--frame-length', type=int, default=160,
                     help='frame length')
 parser.add_argument('--subframes', type=int, default=4,
                     help='numbre of subframes')
-parser.add_argument('--fixed-cb-size', type=int, default=4,
+parser.add_argument('--fixed-cb-size', type=int, default=128,
                     help='fixed codebook size')
+parser.add_argument('--adapt-cb-size', type=int, default=80,
+                    help='adaptive codebook size')
 parser.add_argument('--frame-window', type=str, default="boxcar",
-                    help='Frame windows (boxcar, hamming, hanning, etc)')
+                    help='frame windows (boxcar, hamming, hanning, etc)')
 parser.add_argument('--weigthing-coeff-1', type=float, default=0.9,
-                    help='First coefficient of the weigthing filter'
+                    help='first coefficient of the weigthing filter'
                     ' W(z) = A(z/coeff_1) / A(z/coeff_2)')
 parser.add_argument('--weigthing-coeff-2', type=float, default=0.6,
-                    help='Second coefficient of the weigthing filter'
+                    help='second coefficient of the weigthing filter'
                     ' W(z) = A(z/coeff_1) / A(z/coeff_2)')
 args = parser.parse_args()
 
