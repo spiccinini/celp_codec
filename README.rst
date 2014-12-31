@@ -4,6 +4,21 @@ celp_codec
 This is a simple CELP voice codec implementation.
 http://en.wikipedia.org/wiki/Code-excited_linear_prediction
 
+Features
+--------
+
+* Encoding and decoding from multiple WAV and AIFF formats.
+* Support file or stdin/stdout
+* Real time processing, encode and decode from streams.
+* Configurable
+    - LPC order
+    - Frame length
+    - Number of subframes
+    - Adaptive codebook size
+    - Multiple frame windows ('hanning', 'boxcar', etc)
+    - Weighting coefficients
+
+
 Dependencies
 ------------
 
