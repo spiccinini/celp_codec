@@ -9,26 +9,19 @@ from itertools import islice
 
 import lpc
 from adaptive_codebook import AdaptiveCodebook
+from fixed_codebook_128x40 import FC
 
 SAMPLE_RATE = 8000
 
-# TODO:
+# Future improvements:
 #
+# * Implement fixed codebooks of different sizes
+# * Support more sample rates
 # * Preprocesing filter (high pass, and equalization)
-# * Build W(z), the noise weighting filter, from A(z).
 # * Convert LPC (linear prediction coefs) to LSP (linear spectral pairs)
 # * Quantize LSP
 # * Convert LSP to LPC
 # * Build window for frame
-# * Adaptive Codebook (AC)
-
-# CELP Simplest Algorithm (without preprocesing, AC, W(z), and quantization):
-#
-# For each frame:
-# * Generate LPC from samples
-# * Build H (convolution matrix) from H(z) = 1 / A(z)
-# * For each subframe:
-#   * Search in FC
 
 class CELP(object):
 
@@ -55,8 +48,6 @@ class CELP(object):
 
         self.weigthing_coeff_1, self.weigthing_coeff_2 = weigthing_coeff_1, weigthing_coeff_2
 
-        # TODO
-        from fixed_codebook_128x40 import FC
         self.fixed_codebook = FC
 
         self.adaptive_codebook = AdaptiveCodebook(vector_size=self.subframe_length,
@@ -67,7 +58,10 @@ class CELP(object):
 
     def encode(self, frame):
         import lpc
+        # Apply window
         frame *= self.frame_window
+
+        # Generate LPC coefficients
         lpc_error_coeffs = lpc.lpc_ref(frame, self.lpc_order)
 
         out_fc_indexes, out_ac_indexes = [], []
@@ -101,17 +95,22 @@ class CELP(object):
 
             # Search the best fixed codebook signal
             d = np.dot(W, subframe - z0 - np.dot(H, ac_excitation) + z1)
-
             fc_index, fc_amplif = search_codebook(M, d, self.fixed_codebook)
-
             fc_excitation = fc_amplif * self.fixed_codebook[fc_index]
+
+            # Build current excitation using adaptive and fixed codebooks
             self._excitation = ac_excitation + fc_excitation
+
+            # Append current excitation to adaptive codebook
             self.adaptive_codebook.add_vector(self._excitation)
+
+            # store output values for this frame
             out_fc_indexes.append(fc_index)
             out_fc_amplifs.append(fc_amplif)
             out_ac_indexes.append(ac_index)
             out_ac_amplifs.append(ac_amplif)
 
+        # generate binary output string with all output values
         lpc = lpc_error_coeffs.astype(self.lpc_error_coefs_dtype).tostring()
         fc_indexes = np.array(out_fc_indexes, dtype=self.index_dtype).tostring()
         fc_amplifs = np.array(out_fc_amplifs, dtype=self.amplifs_dtype).tostring()
@@ -134,18 +133,20 @@ class CELP(object):
     def size_of_amplifs(self):
         return self.amplifs_dtype.itemsize * self.n_subframes
 
-    def decode(self, bits):
-        it = iter(bits)
+    def decode(self, frame_bits):
+        frame_bits_it = iter(frame_bits)
 
-        lpc_error_coeffs = np.fromstring("".join(islice(it, self.size_of_lpc())),
+
+        # read input values from input bits
+        lpc_error_coeffs = np.fromstring("".join(islice(frame_bits_it, self.size_of_lpc())),
                                          dtype=self.lpc_error_coefs_dtype)
-        fc_indexes = np.fromstring("".join(islice(it, self.size_of_indexes())),
+        fc_indexes = np.fromstring("".join(islice(frame_bits_it, self.size_of_indexes())),
                                    dtype=self.index_dtype)
-        fc_amplifs = np.fromstring("".join(islice(it, self.size_of_amplifs())),
+        fc_amplifs = np.fromstring("".join(islice(frame_bits_it, self.size_of_amplifs())),
                                    dtype=self.amplifs_dtype)
-        ac_indexes = np.fromstring("".join(islice(it, self.size_of_indexes())),
+        ac_indexes = np.fromstring("".join(islice(frame_bits_it, self.size_of_indexes())),
                                    dtype=self.index_dtype)
-        ac_amplifs = np.fromstring("".join(islice(it, self.size_of_amplifs())),
+        ac_amplifs = np.fromstring("".join(islice(frame_bits_it, self.size_of_amplifs())),
                                    dtype=self.amplifs_dtype)
         out = np.array([])
 
@@ -155,12 +156,12 @@ class CELP(object):
         for fc_index, fc_amplif, ac_index, ac_amplif in zip(fc_indexes, fc_amplifs, ac_indexes, ac_amplifs):
             z0 = lfilter([1], lpc_error_coeffs,
                          np.concatenate((self._excitation, np.zeros(self.subframe_length))))[self.subframe_length:]
-            print ac_index
             self._excitation = fc_amplif * self.fixed_codebook[fc_index] + ac_amplif * self.adaptive_codebook[ac_index]
 
             subframe_out = np.dot(H, self._excitation) + z0
             out = np.concatenate((out, subframe_out))
 
+            # Append current excitation to adaptive codebook
             self.adaptive_codebook.add_vector(self._excitation)
 
         return out

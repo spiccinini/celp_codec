@@ -17,7 +17,6 @@ parser.add_argument('-i', type=str, default="-",
                     help='input file. Defaults to standard input')
 parser.add_argument('-o', type=argparse.FileType('w'), default=sys.stdout,
                     help='output file. Defaults to standard output')
-
 parser.add_argument('--lpc-order', type=int, default=10,
                     help='CELP LPC order')
 parser.add_argument('--frame-length', type=int, default=160,
