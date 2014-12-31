@@ -13,16 +13,6 @@ from fixed_codebook_128x40 import FC
 
 SAMPLE_RATE = 8000
 
-# Future improvements:
-#
-# * Implement fixed codebooks of different sizes
-# * Support more sample rates
-# * Preprocesing filter (high pass, and equalization)
-# * Convert LPC (linear prediction coefs) to LSP (linear spectral pairs)
-# * Quantize LSP
-# * Convert LSP to LPC
-# * Build window for frame
-
 class CELP(object):
 
     lpc_error_coefs_dtype = np.dtype(np.float16)
